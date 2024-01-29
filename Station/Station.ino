@@ -11,7 +11,7 @@
 
 #define PIN_RECEIVER D5
 
-LiquidCrystal_I2C lcd(0x27, 20, 4);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 byte degreeIcon[8] = {
   B00110,
@@ -63,6 +63,7 @@ float receivedHumidity;
 bool wasReceived = false;
 unsigned long lastReceiveTime = 0;
 
+bool lcdBacklightOn = true;
 
 void setup() {
   Serial.begin(115200);
@@ -108,6 +109,10 @@ void setup() {
   // Start ArduinoOTA
   ArduinoOTA.begin();
 
+
+  bool bmeStatus = bme.begin(0x76);
+
+  server.on("/toggleBacklight", HTTP_GET, handleToggleBacklight);
   server.on("/", HTTP_GET, handleRoot);
   server.on("/data", HTTP_GET, handleData);
 
@@ -144,8 +149,6 @@ void loop() {
 
   if (millis() - lastUpdateTime >= 2000) {
     lastUpdateTime = millis();
-
-    if (bme.begin(0x76)) {
       
       float pressureOffset = 5;
       currentPressure = bme.readPressure() / 100.0 + pressureOffset;
@@ -171,10 +174,17 @@ void loop() {
       lcd.setCursor(0, 1);
       lcd.write((byte)1);
       if (wasReceived == true)
+      {
         lcd.print(receivedTemperature, 1);
-      lcd.write((byte)0);
-      lcd.print("C");
-
+        lcd.write((byte)0);
+        lcd.print("C");
+      }
+      else
+      {
+        lcd.write((byte)0);
+        lcd.print("C");
+        lcd.print("    ");
+      }
 
       lcd.setCursor(10, 1);
       lcd.write((byte)2);
@@ -184,11 +194,6 @@ void loop() {
       lcd.print(receivedHumidity, 1);
       lcd.print("%");
 
-    } else {
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Brak czujnika!");
-    }
   }
   uint8_t buf[100];
   uint8_t buflen = sizeof(buf);
@@ -214,11 +219,46 @@ void loop() {
   }
 }
 
+void handleToggleBacklight() {
+  // Toggle the backlight status
+  lcdBacklightOn = !lcdBacklightOn;
+
+  // Turn the backlight on or off based on the updated status
+  if (lcdBacklightOn) {
+    lcd.backlight();
+  } else {
+    lcd.noBacklight();
+  }
+
+  server.send(200, "text/plain", "Backlight toggled");
+}
+
+
 void handleData() {
-    String jsonData = "{\"temperature\": " + String(currentTemperature, 1) + ", \"humidity\": " + String(currentHumidity, 0) + ", \"pressure\": " + String(currentPressure, 0) + 
-    ", \"outside_temperature\": " + String(receivedTemperature, 1) + ", \"outside_humidity\": " +  String(receivedHumidity, 0) +"}";
+    String jsonData;
+
+    String outsideTemperatureString = String(receivedTemperature, 1);
+    String outsideHumidityString = String(receivedHumidity, 0);
+
+    if (isnan(receivedTemperature)) {
+        outsideTemperatureString = "\"NaN\"";
+    }
+
+    if (isnan(receivedHumidity)) {
+        outsideHumidityString = "\"NaN\"";
+    }
+
+    // Utwórz JSON
+    jsonData = "{\"temperature\": " + String(currentTemperature, 1) +
+               ", \"humidity\": " + String(currentHumidity, 0) +
+               ", \"pressure\": " + String(currentPressure, 0) +
+               ", \"outside_temperature\": " + outsideTemperatureString +
+               ", \"outside_humidity\": " + outsideHumidityString + "}";
+
+    // Wyślij odpowiedź
     server.send(200, "application/json", jsonData);
 }
+
 
 void handleRoot() {
 String html = "<!DOCTYPE html>";
@@ -239,6 +279,17 @@ html += "            background-color: #11864c;";
 html += "            color: #DCDCDC;";
 html += "            text-align: center;";
 html += "            padding: 0.1em;";
+html += "        }";
+html += "        button {";
+html += "            margin-top: 3em;";
+html += "            padding: 0.5em 1em;";
+html += "            font-size: 16px;";
+html += "            background-color: #121a1552;";
+html += "            color: #DCDCDC;";
+html += "            border-radius: 5px;";
+html += "            cursor: pointer;";
+html += "            border-color: #a9ff00e8;";
+html += "            height: 3em;";
 html += "        }";
 html += "        section {";
 html += "            text-align: center;";
@@ -291,6 +342,9 @@ html += "        <div id='humidity-container'>";
 html += "            <p>Wilgotność: <span id='outside_humidity' style='font-size: 24px;'>0.0</span> %</p>";
 html += "        </div>";
 html += "    </section>";
+html += "    <section>";
+html += "      <button onclick='toggleBacklight()'>Podświetlenie LCD</button>";
+html += "    </section>";
 html += "    <script>";
 html += "        function updateData() {";
 html += "            var xhttp = new XMLHttpRequest();";
@@ -314,6 +368,11 @@ html += "            };";
 html += "            xhttp.open('GET', '/data', true);";
 html += "            xhttp.send();";
 html += "        }";
+html += "        function toggleBacklight() {";
+html += "            var xhttp = new XMLHttpRequest();";
+html += "            xhttp.open('GET', '/toggleBacklight', true);";
+html += "            xhttp.send();";
+html += "        };";
 html += "        setInterval(updateData, 2000);";
 html += "    </script>";
 html += "</body>";
