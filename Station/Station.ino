@@ -11,6 +11,11 @@
 
 #define PIN_RECEIVER D5
 
+#define PIN_BACKLIGHT_BUTTON D3
+
+bool isBacklightOn = true;
+bool buttonPressed = false;
+
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 byte degreeIcon[8] = {
@@ -63,13 +68,13 @@ float receivedHumidity;
 bool wasReceived = false;
 unsigned long lastReceiveTime = 0;
 
-bool lcdBacklightOn = true;
-
 void setup() {
   Serial.begin(115200);
 
   lcd.init();
   lcd.backlight();
+
+  pinMode(PIN_BACKLIGHT_BUTTON, INPUT_PULLUP);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -139,7 +144,9 @@ void loop() {
     MDNS.update();
   }
 
-  if (millis() - lastReceiveTime > 10000) {
+  handleBacklightButton();
+
+  if (millis() - lastReceiveTime > 30000) {
     wasReceived = false;
     receivedTemperature = 0;
     receivedHumidity = 0;
@@ -150,7 +157,9 @@ void loop() {
   if (millis() - lastUpdateTime >= 2000) {
     lastUpdateTime = millis();
       
-      float pressureOffset = 5;
+    if (bme.begin(0x76)) {
+
+      float pressureOffset = 0;
       currentPressure = bme.readPressure() / 100.0 + pressureOffset;
 
       float temperatureOffset = -0.7;
@@ -170,7 +179,14 @@ void loop() {
       lcd.print(currentPressure, 0);
       lcd.print(" hPa");
 
-
+    } 
+    
+    else {
+      lcd.print("                ");
+      lcd.setCursor(0, 0);
+      lcd.print("Brak BME280!");
+    }
+    
       lcd.setCursor(0, 1);
       lcd.write((byte)1);
       if (wasReceived == true)
@@ -195,6 +211,7 @@ void loop() {
       lcd.print("%");
 
   }
+
   uint8_t buf[100];
   uint8_t buflen = sizeof(buf);
 
@@ -219,19 +236,37 @@ void loop() {
   }
 }
 
-void handleToggleBacklight() {
-  // Toggle the backlight status
-  lcdBacklightOn = !lcdBacklightOn;
+void handleBacklightButton() {
+  int backlightButtonState = digitalRead(PIN_BACKLIGHT_BUTTON);
 
-  // Turn the backlight on or off based on the updated status
-  if (lcdBacklightOn) {
-    lcd.backlight();
-  } else {
+  // Check if the button has been pressed
+  if (backlightButtonState == LOW && !buttonPressed) {
+    buttonPressed = true; 
+
+    isBacklightOn = !isBacklightOn;
+
+    if (isBacklightOn) {
+      lcd.backlight();
+    } else {
+      lcd.noBacklight();
+    }
+    delay(500);
+  } else if (backlightButtonState == HIGH && buttonPressed) {
+    buttonPressed = false; 
+  }
+}
+
+void handleToggleBacklight() {
+  if (isBacklightOn) {
     lcd.noBacklight();
+  } else {
+    lcd.backlight();
   }
 
+  isBacklightOn = !isBacklightOn;  // Zaktualizuj stan podświetlenia
   server.send(200, "text/plain", "Backlight toggled");
 }
+
 
 
 void handleData() {
@@ -284,7 +319,7 @@ html += "        button {";
 html += "            margin-top: 3em;";
 html += "            padding: 0.5em 1em;";
 html += "            font-size: 16px;";
-html += "            background-color: #121a1552;";
+html += "            background-color: #121a1599;";
 html += "            color: #DCDCDC;";
 html += "            border-radius: 5px;";
 html += "            cursor: pointer;";
@@ -298,6 +333,9 @@ html += "        }";
 html += "        p {";
 html += "            margin: 0;";
 html += "            padding: 0.5em;";
+html += "        }";
+html += "        span {";
+html += "            margin-bottom: 0.5em;";
 html += "        }";
 html += "        #pressure-container, #temperature-container, #humidity-container {";
 html += "            border: 2px solid #0f8e58;";
@@ -324,26 +362,31 @@ html += "    </header>";
 html += "    <section>";
 html += "        <h3>W domu</h3>";
 html += "        <div id='temperature-container'>";
-html += "            <p>Temperatura: <span id='temperature' style='font-size: 24px;'>0.0</span> °C</p>";
+html += "            <p>Temperatura:</p>";
+html += "            <span id='temperature' style='font-size: 24px;'>0.0</span> °C";
 html += "        </div>";
 html += "        <div id='humidity-container'>";
-html += "            <p>Wilgotność: <span id='humidity' style='font-size: 24px;'>0.0</span> %</p>";
+html += "            <p>Wilgotność:</p>";
+html += "             <span id='humidity' style='font-size: 24px;'>0.0</span> %";
 html += "        </div>";
 html += "        <div id='pressure-container'>";
-html += "            <p>Ciśnienie: <span id='pressure' style='font-size: 24px;'>0.0</span> hPa</p>";
+html += "            <p>Ciśnienie:</p>";
+html += "            <span id='pressure' style='font-size: 24px;'>0.0</span> hPa";
 html += "        </div>";
 html += "    </section>";
 html += "    <section>";
 html += "        <h3>Na zewnątrz</h3>";
 html += "        <div id='temperature-container'>";
-html += "            <p>Temperatura: <span id='outside_temperature' style='font-size: 24px;'>0.0</span> °C</p>";
+html += "            <p>Temperatura:</p>";
+html += "            <span id='outside_temperature' style='font-size: 24px;'>0.0</span> °C";
 html += "        </div>";
 html += "        <div id='humidity-container'>";
-html += "            <p>Wilgotność: <span id='outside_humidity' style='font-size: 24px;'>0.0</span> %</p>";
+html += "            <p>Wilgotność:</p>";
+html += "            <span id='outside_humidity' style='font-size: 24px;'>0.0</span> %";
 html += "        </div>";
 html += "    </section>";
 html += "    <section>";
-html += "      <button onclick='toggleBacklight()'>Podświetlenie LCD</button>";
+html += "      <button onclick='toggleBacklight()'>🔆 Wyświetlacz</button>";
 html += "    </section>";
 html += "    <script>";
 html += "        function updateData() {";
