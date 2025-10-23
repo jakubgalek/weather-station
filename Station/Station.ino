@@ -159,7 +159,7 @@ void loop() {
       
     if (bme.begin(0x76)) {
 
-      float pressureOffset = 0;
+      float pressureOffset = 30;
       currentPressure = bme.readPressure() / 100.0 + pressureOffset;
 
       float temperatureOffset = -0.7;
